@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kristal Madenleri</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #0a0a0f;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        font-family: "Courier New", monospace;
+        overflow: hidden;
+      }
+      #gameContainer {
+        position: relative;
+        border: 3px solid #4a3f6b;
+        box-shadow:
+          0 0 40px #6b3fa0aa,
+          0 0 80px #3a1f5088;
+      }
+      canvas {
+        display: block;
+        cursor: crosshair;
+      }
+      #ui {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 10px 14px;
+        pointer-events: none;
+        z-index: 10;
+      }
+      .ui-box {
+        background: rgba(10, 8, 20, 0.82);
+        border: 1.5px solid #6b3fa0;
+        border-radius: 8px;
+        padding: 7px 13px;
+        color: #d4b8ff;
+        font-size: 13px;
+        min-width: 110px;
+        text-align: center;
+        box-shadow: 0 0 12px #6b3fa055;
+      }
+      .ui-box span {
+        color: #fff;
+        font-weight: bold;
+        font-size: 15px;
+      }
+      #timerBox {
+        border-color: #c0392b;
+        box-shadow: 0 0 12px #c0392b55;
+      }
+      #timerBox span {
+        color: #ff6b6b;
+      }
+      #msgOverlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(5, 3, 15, 0.88);
+        z-index: 20;
+        color: #d4b8ff;
+      }
+      #msgOverlay h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+        text-shadow: 0 0 20px #9b59ff;
+      }
+      #msgOverlay p {
+        font-size: 1em;
+        margin: 6px 0;
+        color: #b8a0e0;
+        max-width: 380px;
+        text-align: center;
+      }
+      #msgOverlay button {
+        margin-top: 22px;
+        padding: 12px 34px;
+        background: #6b3fa0;
+        color: #fff;
+        border: 2px solid #9b6fd0;
+        border-radius: 8px;
+        font-size: 1.1em;
+        cursor: pointer;
+        font-family: "Courier New", monospace;
+        letter-spacing: 1px;
+        transition: all 0.2s;
+        box-shadow: 0 0 18px #9b59ff88;
+      }
+      #msgOverlay button:hover {
+        background: #9b59ff;
+        box-shadow: 0 0 30px #9b59ffaa;
+      }
+      .depth-meter {
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gameContainer">
+      <canvas id="gameCanvas"></canvas>
+      <div id="ui">
+        <div class="ui-box">
+          🔮 Kristal<br /><span id="crystalCount">0</span>
+        </div>
+        <div class="ui-box">💰 Altın<br /><span id="goldCount">0</span></div>
+        <div class="ui-box" id="timerBox">
+          ⏱ Süre<br /><span id="timer">90</span>s
+        </div>
+        <div class="ui-box">📦 Hedef<br /><span id="goalCount">0</span>/10</div>
+      </div>
+      <div id="msgOverlay">
+        <h1>⛏ Kristal Madenleri</h1>
+        <p>
+          Karanlık mağaralarda kristal cevheri çıkarmak için
+          çalıştırılıyorsun!<br />Yüzeydeki tüccara 10 kristal satamadan süre
+          biterse kaybedersin!
+        </p>
+        <p style="margin-top: 14px; color: #9b6fd0; font-size: 0.92em">
+          <b>WASD / Ok Tuşları</b> — Hareket &amp; Zıplama<br />
+          <b>Fare Sol Tık</b> — Yakındaki bloğu kaz<br />
+          <b>E</b> — Tüccarla etkileşim (yüzeyde)<br />
+          <b>M</b> — Müziği aç/kapat
+        </p>
+        <button id="startBtn">OYUNA BAŞLA</button>
+      </div>
+    </div>
+
+    <script>
+      // ========================
+      // CANVAS VE TEMEL AYARLAR
+      // ========================
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const W = 800,
+        H = 560;
+      canvas.width = W;
+      canvas.height = H;
+
+      // Oyun sabitleri
+      const TILE = 32; // Her kare bloğun piksel boyutu
+      const COLS = 25; // Yatay blok sayısı
+      const ROWS = 40; // Toplam harita yüksekliği (blok sayısı)
+      const SURFACE_ROW = 6; // Yüzey bloklarının başladığı satır
+      const GOAL = 10; // Kazanmak için gereken satış sayısı
+      const GAME_TIME = 100; // Oyun süresi (saniye)
+
+      // ========================
+      // BLOK TİPLERİ
+      // ========================
+      const EMPTY = 0;
+      const DIRT = 1; // Toprak
+      const STONE = 2; // Taş
+      const CRYSTAL = 3; // Kristal cevheri
+      const BEDROCK = 4; // Kırılamaz taban
+
+      // ========================
+      // RENK PALETİ
+      // ========================
+      const COLORS = {
+        sky: "#0d0820",
+        skyGrad: ["#0d0820", "#1a0f3a"],
+        dirt: "#5c3d2e",
+        dirtDark: "#3d2416",
+        stone: "#4a4a5a",
+        stoneDark: "#32323f",
+        crystal: "#7b2fff",
+        crystalGlow: "#b06fff",
+        bedrock: "#1a1a2e",
+        player: "#e8c84a",
+        merchant: "#e07a30",
+        particle: "#c084fc",
+      };
+
+      // ========================
+      // OYUN DURUMU
+      // ========================
+      let map = []; // Harita dizisi [row][col] = blok tipi
+      let particles = []; // Efekt partikülleri
+      let gameState = "menu"; // 'menu' | 'playing' | 'win' | 'lose'
+      let crystals = 0; // Envanterdeki kristal sayısı
+      let gold = 0; // Toplam altın
+      let sold = 0; // Satılan kristal sayısı
+      let timeLeft = GAME_TIME;
+      let lastTime = 0;
+      let timerAcc = 0;
+
+      // Kamera koordinatları
+      let camX = 0,
+        camY = 0;
+
+      // ==============================================
+      //               OYUNCU NESNESİ
+      // ===========================================
+      const player = {
+        x: 4 * TILE,
+        y: (SURFACE_ROW - 1) * TILE,
+        w: 24, //oyuncunun genişliği (width)
+        h: 28, //oyuncunun yüksekliği (height)
+        vx: 0, 
+        vy: 0,
+        onGround: false,
+        canDoubleJump: false,
+        hasDoubleJumped: false,
+        mining: false,
+        mineX: 0,
+        mineY: 0, // Kazılan blok koordinatı
+        mineProgress: 0, // Kazma ilerleme (0-1)
+        mineTarget: null, // Mevcut kazma hedefi
+        facingRight: true,
+        animFrame: 0,
+        animTimer: 0,
+      };
+
+      // Tüccar konumu (yüzey üzerinde)
+      const merchant = {
+        x: (COLS - 4) * TILE,
+        y: (SURFACE_ROW - 2) * TILE,
+        w: 28,
+        h: 36,
+        interacting: false,
+      };
+
+      // ========================
+      // GİRİŞ KONTROL
+      // ========================
+      const keys = {};
+      const mouse = { x: 0, y: 0, down: false, clicked: false };
+
+      document.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+        // Müzik toggle
+        if (e.key === "m" || e.key === "M") toggleMusic();
+        // Tüccar etkileşim
+        if ((e.key === "e" || e.key === "E") && gameState === "playing")
+          tryMerchant();
+        // Oyun sonu — yeniden başla
+        if (e.key === "r" || e.key === "R") {
+          if (gameState !== "playing") startGame();
+        }
+        e.preventDefault &&
+          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(
+            e.key,
+          ) &&
+          e.preventDefault();
+      });
+      document.addEventListener("keyup", (e) => {
+        keys[e.key] = false;
+      });
+
+      canvas.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+      });
+      canvas.addEventListener("mousedown", (e) => {
+        if (e.button === 0) {
+          mouse.down = true;
+          mouse.clicked = true;
+        }
+      });
+      canvas.addEventListener("mouseup", (e) => {
+        if (e.button === 0) mouse.down = false;
+      });
+
+      // ========================
+      // SES SİSTEMİ (Web Audio API)
+      // ========================
+      let audioCtx = null;
+      let musicOn = true;
+      let bgGain = null, // ana ses seviyesi kontrolü
+        musicInterval = null;
+
+      // Ses motorunu başlat (oyun başladığında değil  ilk etkileşimde başlar)
+      function initAudio() {
+        if (audioCtx) return; // zaten başlatıldıysa tekrar başlatma
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        bgGain = audioCtx.createGain();
+        bgGain.gain.value = 0.18;  // %18 ses seviyesi
+        bgGain.connect(audioCtx.destination); // hoparlöre bağla, ses gelmesi için
+        playBGMusic();
+      }
+
+      // Web Audio ile oluşturulmuş 8-bit arkaplan müziği
+      function playBGMusic() {
+        if (!audioCtx || !musicOn) return;
+        //müzik notalarının hz cinsinden frekansları 220 = La3 246 = Si3 261 = Do4 293 = Re4 329 = Mi4
+        const notes = [
+          220, 246, 261, 293, 329, 293, 261, 246, 220, 207, 196, 220, 246, 220,
+          196, 174,
+        ];
+        let noteIdx = 0;
+        function playNote() {
+          if (!musicOn || !audioCtx) return;
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.type = "square"; //8 bit retro oyun sesi
+          osc.frequency.value = notes[noteIdx % notes.length];
+          g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+          g.gain.exponentialRampToValueAtTime(
+            0.001,
+            audioCtx.currentTime + 0.18,
+          );
+          osc.connect(g);
+          g.connect(bgGain);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.2);
+          noteIdx++;
+        }
+        // her 220ms de bir sonraki notayı çal
+        if (musicInterval) clearInterval(musicInterval);
+        musicInterval = setInterval(playNote, 220);
+      }
+
+      function toggleMusic() { //müzik döngüsünü durdur-başlat (M)
+        initAudio();
+        musicOn = !musicOn;
+        if (musicOn) playBGMusic();
+        else {
+          clearInterval(musicInterval);
+          musicInterval = null;
+        }
+      }
+
+      // Kazma sesi
+      function soundMine() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = "sawtooth"; // keskin metalik bir ses
+        osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(
+          80,
+          audioCtx.currentTime + 0.08,
+        );
+        g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.09);
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+      }
+
+      // Kristal toplama sesi
+      function soundCollect() {
+        if (!audioCtx) return;
+        [600, 800, 1000].forEach((f, i) => {
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = f;
+          g.gain.setValueAtTime(0.12, audioCtx.currentTime + i * 0.06);
+          g.gain.exponentialRampToValueAtTime(
+            0.001,
+            audioCtx.currentTime + i * 0.06 + 0.12,
+          ); // i * 0.06 saniye arayla 3 nota art arda çalınıyor:
+          osc.connect(g);
+          g.connect(audioCtx.destination);
+          osc.start(audioCtx.currentTime + i * 0.06);
+          osc.stop(audioCtx.currentTime + i * 0.06 + 0.15);
+        });
+      }
+
+      // Satış sesi
+      function soundSell() {
+        if (!audioCtx) return;
+        //4 nota art arda çalınıyor
+        [400, 600, 500, 800].forEach((f, i) => {
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.type = "triangle";
+          osc.frequency.value = f;
+          g.gain.setValueAtTime(0.15, audioCtx.currentTime + i * 0.07);
+          g.gain.exponentialRampToValueAtTime(
+            0.001,
+            audioCtx.currentTime + i * 0.07 + 0.14,
+          );
+          osc.connect(g);
+          g.connect(audioCtx.destination);
+          osc.start(audioCtx.currentTime + i * 0.07);
+          osc.stop(audioCtx.currentTime + i * 0.07 + 0.15);
+        });
+      }
+
+      // ========================
+      // HARİTA OLUŞTURMA
+      // ========================
+      function generateMap() {
+        map = [];
+        for (let r = 0; r < ROWS; r++) {
+          map[r] = [];
+          for (let c = 0; c < COLS; c++) {
+            if (r < SURFACE_ROW - 1) {
+              // ilk 5 satır boş, yani gökyüzü
+              map[r][c] = EMPTY;
+            } else if (r === SURFACE_ROW - 1) {
+              //  r=5 olan satır yüzey toprağı-oyuncunun ayak bastığı zemin
+              map[r][c] = DIRT;
+            } else if (r >= ROWS - 1) {
+              // En alt tabaka, ROW=40 olduğundan r=39 kırılmaz zemin.
+              map[r][c] = BEDROCK;
+            } else {
+              // Derinliğe göre dolgu
+              //Her blokta %4 şansla boşluk oluşuyor
+              const depth = r - SURFACE_ROW;
+              const rand = Math.random();
+              if (rand < 0.04) {
+                map[r][c] = EMPTY; // Küçük boşluklar
+              } else if (depth < 4) {
+                map[r][c] = DIRT; //Yüzeye yakın 4 katmanda her şey toprak.
+              } else if (depth < 10) { //Orta derinlikte kristal az, taş çok.
+                map[r][c] = rand < 0.12 ? CRYSTAL : rand < 0.5 ? DIRT : STONE;
+              } else {
+                // Derinlerde kristal fazla (%18), toprak az (%12), taş daha fazla (%70).
+                map[r][c] = rand < 0.18 ? CRYSTAL : rand < 0.3 ? DIRT : STONE;
+              }
+            }
+          }
+        }
+        // Başlangıç alanı boşalt (oyuncu orada başlayacak)
+        for (let r = 0; r < SURFACE_ROW; r++) {
+          for (let c = 0; c < 8; c++) map[r][c] = EMPTY;
+        }
+        // Tüccar alanını düzelt
+        //COLS = 25 olduğundan sağdaki son 6 sütun boşaltılıyor. Tüccar orada duruyor, blok içine gömülmesin diye.
+        for (let r = 0; r < SURFACE_ROW; r++) {
+          for (let c = COLS - 6; c < COLS; c++) map[r][c] = EMPTY;
+        }
+      }
+
+      // ========================
+      // YARDIMCI FONKSİYONLAR
+      // ========================
+      // Piksel koordinatından blok alır
+      function getBlock(px, py) {
+        const c = Math.floor(px / TILE);
+        const r = Math.floor(py / TILE);
+        if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return BEDROCK;
+        return map[r][c];
+      }
+
+      // Blok varlığını kontrol eder (katı mı?)
+      function isSolid(c, r) {
+        if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return true;
+        return map[r][c] !== EMPTY;
+      }
+
+      // ========================
+      // OYUNCUNUN FİZİĞİ
+      // ========================
+      function updatePlayer(dt) {
+        const SPEED = 180; // Yatay hız (piksel/sn)
+        const JUMP_VEL = -360; // Zıplama hızı
+        const GRAVITY = 700; // Yerçekimi
+
+        // Yatay hareket
+        let moveX = 0;
+        if (keys["ArrowLeft"] || keys["a"] || keys["A"]) {
+          moveX = -1;
+          player.facingRight = false;
+        }
+        if (keys["ArrowRight"] || keys["d"] || keys["D"]) {
+          moveX = 1;
+          player.facingRight = true;
+        }//a ve d tuşlarını kontrol ederek oyuncunun yönü belirlenir
+        player.vx = moveX * SPEED;
+
+        // Zıplama
+        // Eğer havadaysa ve daha önce çift zıplama yapmadıysa (!hasDoubleJumped) zıplama gücünün %85'i kadar (0.85) bir kuvvetle havada tekrar sıçrar
+        const jumpPressed =
+          keys["ArrowUp"] || keys["w"] || keys["W"] || keys[" "];
+        if (jumpPressed && !player._jumpHeld) {
+          if (player.onGround) {
+            player.vy = JUMP_VEL;
+            player.onGround = false;
+            player.hasDoubleJumped = false;
+          } else if (!player.hasDoubleJumped) {
+            player.vy = JUMP_VEL * 0.85;
+            player.hasDoubleJumped = true;
+          }
+        }
+        player._jumpHeld = jumpPressed;
+
+        // Yerçekimi uygula
+        //player.vy (y ekseni hızı) sürekli olarak GRAVITY * dt kadar artırılır. oyuncunun sonsuza dek hızlanması 700 sınırıyla  engellenmiştir.
+        player.vy += GRAVITY * dt;
+        if (player.vy > 700) player.vy = 700; 
+
+        // Yatay fizik ve çarpışma
+        player.x += player.vx * dt;
+        resolveX();
+
+        // Dikey fizik ve çarpışma
+        player.y += player.vy * dt;
+        resolveY();
+
+        // Harita sınırları dışına çıkmasın
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.w > COLS * TILE)
+          player.x = COLS * TILE - player.w;
+
+        // Animasyon
+        if (moveX !== 0 && player.onGround) {
+          player.animTimer += dt;
+          if (player.animTimer > 0.12) {
+            player.animFrame = (player.animFrame + 1) % 4;
+            player.animTimer = 0;
+          }
+        } else {
+          player.animFrame = 0;
+        }
+      }
+
+      // Yatay çarpışma tespiti
+      function resolveX() {
+        const c1 = Math.floor(player.x / TILE); //Oyuncunun sol kenarının hangi sütunda olduğu.
+        const c2 = Math.floor((player.x + player.w - 1) / TILE); //Oyuncunun sağ kenarının hangi sütunda olduğu.
+        const r1 = Math.floor(player.y / TILE); //Oyuncunun üst kenarının hangi satırda olduğu.
+        const r2 = Math.floor((player.y + player.h - 1) / TILE); //Oyuncunun alt kenarının hangi satırda olduğu.
+        for (let r = r1; r <= r2; r++) {
+          if (isSolid(c1, r) && player.vx < 0) {//sola gidiyorsa
+            player.x = (c1 + 1) * TILE;
+            player.vx = 0;
+            return;
+          }//Sol kenarının çarptığı blok (c1) katıysa oyuncunun x koordinatını o bloğun hemen sağına ((c1 + 1) * TILE) yaslar ve durdurur
+          if (isSolid(c2, r) && player.vx > 0) {//sağa gidiyorsa
+            player.x = c2 * TILE - player.w;
+            player.vx = 0;
+            return;
+          } //Sağ kenarının çarptığı blok (c2) katıysa, oyuncuyu o bloğun soluna yaslar ve durdurur.
+        }
+      }
+
+      // Dikey çarpışma çözümü
+      function resolveY() {
+        const c1 = Math.floor(player.x / TILE);
+        const c2 = Math.floor((player.x + player.w - 1) / TILE);
+        const r1 = Math.floor(player.y / TILE);
+        const r2 = Math.floor((player.y + player.h - 1) / TILE);
+        player.onGround = false;
+        for (let c = c1; c <= c2; c++) {
+          if (isSolid(c, r1) && player.vy < 0) {//zıplamışsa
+            player.y = (r1 + 1) * TILE;
+            player.vy = 0;
+            return;
+          }
+          if (isSolid(c, r2) && player.vy > 0) {//aşağı düşüyorsa
+            player.y = r2 * TILE - player.h;
+            player.vy = 0;
+            player.onGround = true;
+            player.hasDoubleJumped = false;
+            return;
+          }
+        }
+      }
+
+      // ========================
+      // KAZMA MEKANİĞİ
+      // ========================
+      function updateMining(dt) {
+        if (!mouse.down || gameState !== "playing") { //farenin sol tuşuna basılmıyorsa veya oyun o an aktif değilse
+          player.mineProgress = 0;
+          player.mineTarget = null;
+          return;
+        }//kazma durdurulur ve süreç başa döner
+
+        //mouse.x ve mouse.y farenin ekrandaki koordinatlarını verir
+        const worldMouseX = mouse.x + camX;
+        const worldMouseY = mouse.y + camY;
+        //farenin ucundaki pixelin oyundaki harita dizisinde hangi satır ve sütuna denk geldiği hesaplanır:
+        const mc = Math.floor(worldMouseX / TILE);
+        const mr = Math.floor(worldMouseY / TILE);
+
+        // Oyuncuyla mesafe kontrolü (2 blok menzil)
+        const playerCX = player.x + player.w / 2;
+        const playerCY = player.y + player.h / 2;
+        const blockCX = (mc + 0.5) * TILE;
+        const blockCY = (mr + 0.5) * TILE;
+        const dist = Math.sqrt( //Oyuncunun merkezi (playerCX) ile hedeflenen bloğun merkezi (blockCX) arasındaki mesafe Pisagor teoremi (a^2 + b^2 = c^2) kullanılarak hesaplanır
+          (playerCX - blockCX) ** 2 + (playerCY - blockCY) ** 2,
+        );
+
+        if (dist > TILE * 2.8 || mc < 0 || mc >= COLS || mr < 0 || mr >= ROWS) {
+          player.mineProgress = 0;
+          player.mineTarget = null;
+          return;
+        } //Eğer blok oyuncudan yaklaşık 2.8 bloktan daha uzaktaysa kazma işlemi gerçekleşmez. Sınır, köşe bloğa da ulaşabilmesi için 2.8 olarak belirlendi
+
+        const blockType = map[mr][mc];
+        if (blockType === EMPTY || blockType === BEDROCK) {
+          player.mineProgress = 0;
+          player.mineTarget = null;
+          return;
+        }//Eğer seçilen yer boşsa (EMPTY) veya ana kaya (BEDROCK) ise kırma işlemi yapılamaz.
+
+        // Hedef değişti mi? bloğun ilerlemesi sıfırlanır.
+        const key = `${mr},${mc}`;
+        if (player.mineTarget !== key) {
+          player.mineTarget = key;
+          player.mineProgress = 0;
+        }
+
+        // Kazma süreleri farklı elementler için farklı değerler alır
+        const mineTime =
+          blockType === STONE ? 1.2 : blockType === CRYSTAL ? 1.6 : 0.7;
+        player.mineProgress += dt / mineTime;
+
+        // Her 0.25 saniyede bir ses çal
+        if (!player._mineSound) player._mineSound = 0;
+        player._mineSound += dt; // dt kullanımı sayesinde bu süreler bilgisayar hızlarından bağımsız olarak hesaplanır.
+        if (player._mineSound >= 0.28) {
+          soundMine();
+          player._mineSound = 0;
+        }
+
+        if (player.mineProgress >= 1) {
+          // Bloğu kır
+          if (blockType === CRYSTAL) {
+            crystals++;
+            soundCollect();
+            spawnParticles(blockCX, blockCY, "#b06fff", 16);
+            updateUI();
+          } else {
+            spawnParticles(
+              blockCX,
+              blockCY,
+              blockType === STONE ? "#888" : "#8b6040",
+              8,
+            );
+          }
+          map[mr][mc] = EMPTY; //blok silinir
+          player.mineProgress = 0;
+          player.mineTarget = null;
+          player._mineSound = 0;
+        }
+      }
+
+      // ========================
+      // TİCARET MEKANİĞİ
+      // ========================
+      function tryMerchant() {
+        if (crystals <= 0) return;
+        const px = player.x + player.w / 2;
+        const py = player.y + player.h / 2;
+        const mx = merchant.x + merchant.w / 2;
+        const my = merchant.y + merchant.h / 2;
+        const dist = Math.sqrt((px - mx) ** 2 + (py - my) ** 2);
+        if (dist < TILE * 3) {
+          const earned = crystals * 10;
+          gold += earned;
+          sold += crystals;
+          soundSell();
+          spawnParticles(mx, my, "#ffd700", 20);
+          crystals = 0;
+          updateUI();
+          if (sold >= GOAL) {
+            setTimeout(() => {
+              gameState = "win";
+              showEndScreen();
+            }, 400);
+          }
+        }
+      }
+
+      // ========================
+      // PARTİKÜL SİSTEMİ
+      // ========================
+      function spawnParticles(x, y, color, count) {
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;//0-360 derece arasında rastgele bir açı belirlenir
+          const speed = 80 + Math.random() * 160;//patlama hissi için fırlayacak olan parçacığın hızını rastgele belirler
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 60,//belirlenmiş açı ve hızlara göre x ve y eksenindeki hızları, y ekseninden 60 çıkarılarak hafif bir zıplama hissi verilir
+            life: 1,
+            maxLife: 0.5 + Math.random() * 0.4, //parçacığın ne kadar süre ekranda kalacağı
+            r: 3 + Math.random() * 4,//parçacığın yarıçapı
+            color,
+          });
+        }
+      }
+
+      function updateParticles(dt) {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx * dt;
+          p.y += p.vy * dt; //parçacık hızı oranında hareket ettirilir
+          p.vy += 200 * dt; // parçacığa yerçekimi uygulanır
+          p.life -= dt / p.maxLife;
+          if (p.life <= 0) particles.splice(i, 1); //süresi dolan parçacık silinir
+        }
+      }
+
+      // ========================
+      // KAMERA
+      // ========================
+      function updateCamera() {
+        //targetX ve targetY : kameranın gitmek istediği hedef pixeli hesaplar
+        //player.x + player.w / 2 : oyuncunun merkezini bulur
+        //- W / 2: oyuncunun merkezini ekranın tam ortasına getirmek için ekran genişliğinin yarısını çıkarır
+        const targetX = player.x + player.w / 2 - W / 2;
+        const targetY = player.y + player.h / 2 - H / 2;
+        camX += (targetX - camX) * 0.1;
+        camY += (targetY - camY) * 0.1;
+        camX = Math.max(0, Math.min(camX, COLS * TILE - W));
+        camY = Math.max(0, Math.min(camY, ROWS * TILE - H));
+      }
+
+      // ========================
+      // UI DURUM GÜNCELLEME
+      // ========================
+      function updateUI() {
+        document.getElementById("crystalCount").textContent = crystals;
+        document.getElementById("goldCount").textContent = gold;
+        document.getElementById("goalCount").textContent = sold;
+        document.getElementById("timer").textContent = Math.ceil(timeLeft);
+      }
+
+      // ========================
+      // ÇİZİM FONKSİYONLARI
+      // ========================
+
+      /*  
+      fillRect(x, y, w, h): belirlenen koordinattan başlayarak bir dikdörtgen boyar
+      - camX, - camY : oyuncuyu ekranda görebilmemiz için dünya koordinatından kamera konumunu çıkarırız. Böylece her şey kameraya göre çizilmiş olur.
+      
+      */
+
+      // Arka plan ve gökyüzü
+      function drawBackground() {
+        // Gökyüzü gradyanı
+        const grd = ctx.createLinearGradient(
+          0,
+          0,
+          0,
+          SURFACE_ROW * TILE - camY,
+        );
+        grd.addColorStop(0, "#050310");
+        grd.addColorStop(1, "#1a0f3a");
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, W, Math.max(0, SURFACE_ROW * TILE - camY));
+
+        // Yıldızlar (gökyüzü kısmında)
+        if (!drawBackground._stars) {
+          drawBackground._stars = Array.from({ length: 60 }, () => ({
+            x: Math.random() * COLS * TILE,
+            y: Math.random() * (SURFACE_ROW - 1) * TILE,
+            r: 0.5 + Math.random() * 1.5,
+          }));
+        }
+        ctx.fillStyle = "rgba(255,255,255,0.7)";
+        for (const s of drawBackground._stars) {
+          const sx = s.x - camX,
+            sy = s.y - camY; //camX ve camY çıkarılarak yıldızların kamerayla hareketi sağlanır
+          if (sy > -5 && sy < H) { //yıldız kameranın görüş alanında değilse onu boşuna çizmez
+            ctx.beginPath();
+            ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      // Harita bloklarını çiz
+      function drawMap() {
+        const startC = Math.max(0, Math.floor(camX / TILE));
+        const endC = Math.min(COLS - 1, Math.ceil((camX + W) / TILE));
+        const startR = Math.max(0, Math.floor(camY / TILE));
+        const endR = Math.min(ROWS - 1, Math.ceil((camY + H) / TILE));
+        //kameranın sağ, sol, üst ve altına hangi satır ve sütunların denk geldiğini hesaplar
+
+        for (let r = startR; r <= endR; r++) {
+          for (let c = startC; c <= endC; c++) { //Döngü sadece kameranın gördüğü satır ve sütunlar arasında döner.
+            const type = map[r][c];
+            if (type === EMPTY) continue;
+
+            const sx = c * TILE - camX;
+            const sy = r * TILE - camY;
+
+            // Derinlik karartması
+            const depth = Math.max(0, r - SURFACE_ROW); //bloğun ne kdar aşağıda olduğunu hesaplar
+            const darken = Math.min(0.6, depth / 30); //blok derinliğine göre karanlığı arttırır, max 0.6 karanlığa ulaşılır
+
+            if (type === DIRT) {
+              ctx.fillStyle = COLORS.dirt;
+              ctx.fillRect(sx, sy, TILE, TILE);
+              // Yüzey efekti
+              ctx.fillStyle = "rgba(0,0,0," + darken + ")";
+              ctx.fillRect(sx, sy, TILE, TILE);
+              // Kenar detayı
+              ctx.strokeStyle = "rgba(0,0,0,0.3)";
+              ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1); //kenarlara hafif bir gölge ekler
+           
+            } else if (type === STONE) {
+              ctx.fillStyle = COLORS.stone;
+              ctx.fillRect(sx, sy, TILE, TILE);
+              ctx.fillStyle = "rgba(0,0,0," + darken + ")";
+              ctx.fillRect(sx, sy, TILE, TILE);
+              // Taş çizgileri
+              ctx.strokeStyle = "rgba(0,0,0,0.25)";
+              ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
+              ctx.beginPath();
+              ctx.moveTo(sx + 8, sy); //Bloğun sol kenarından 8 piksel sağa ve bloğun en üst kenarına git
+              ctx.lineTo(sx + 8, sy + TILE); //moveTo ile gidilen noktadan bloğun en altına kadar dik bir çizgi çizer.
+              ctx.moveTo(sx, sy + 16);
+              ctx.lineTo(sx + TILE, sy + 16);
+              ctx.strokeStyle = "rgba(255,255,255,0.06)";
+              ctx.stroke();//moveTo lineTo emirlerini ekrana basar
+            
+            } else if (type === CRYSTAL) {
+              // Parıldayan kristal bloğu
+              const glow = ctx.createRadialGradient(
+                sx + TILE / 2,
+                sy + TILE / 2,
+                2,
+                sx + TILE / 2,
+                sy + TILE / 2,
+                TILE / 1.5,
+              );
+              glow.addColorStop(0, "#c084fc");
+              glow.addColorStop(0.5, "#7b2fff");
+              glow.addColorStop(1, "#4a0080");
+              ctx.fillStyle = glow;
+              ctx.fillRect(sx, sy, TILE, TILE);
+              // Kristal parlama efekti
+              const t = Date.now() / 800;
+              const alpha = 0.15 + 0.12 * Math.sin(t + c * 0.7 + r * 0.5);
+              ctx.fillStyle = `rgba(200,150,255,${alpha})`;
+              ctx.fillRect(sx, sy, TILE, TILE);
+              // Kristal iç deseni
+              ctx.strokeStyle = "rgba(255,200,255,0.35)";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(sx + TILE / 2, sy + 4);
+              ctx.lineTo(sx + TILE - 5, sy + TILE / 2);
+              ctx.lineTo(sx + TILE / 2, sy + TILE - 4);
+              ctx.lineTo(sx + 5, sy + TILE / 2);
+              ctx.closePath();
+              ctx.stroke();
+              ctx.lineWidth = 1;
+           
+            } else if (type === BEDROCK) {
+              ctx.fillStyle = COLORS.bedrock;
+              ctx.fillRect(sx, sy, TILE, TILE);
+              ctx.strokeStyle = "rgba(255,255,255,0.05)";
+              ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
+            }
+          }
+        }
+      }
+
+      // Kazma gösterge çizgisi
+      function drawMiningIndicator() {
+        if (!mouse.down || !player.mineTarget || player.mineProgress <= 0)
+          return;
+        const [mr, mc] = player.mineTarget.split(",").map(Number);
+        const sx = mc * TILE - camX;
+        const sy = mr * TILE - camY;
+
+        // İlerleme çemberi
+        ctx.beginPath();
+        ctx.arc(
+          sx + TILE / 2,
+          sy + TILE / 2,
+          TILE / 2 - 2,
+          -Math.PI / 2,
+          -Math.PI / 2 + player.mineProgress * Math.PI * 2,
+        );
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+
+        // Kazılabilir bloğun etrafında beyaz çerçeve
+        ctx.strokeStyle = "rgba(255,255,255,0.6)";
+        ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
+      }
+
+      // Tüccar çizimi
+      function drawMerchant() {
+        const sx = merchant.x - camX;
+        const sy = merchant.y - camY;
+        if (sx < -50 || sx > W + 50) return;
+
+        // Tüccar çadırı
+        ctx.fillStyle = "#8b2500";
+        ctx.fillRect(sx - 10, sy - 20, merchant.w + 20, 20);
+        ctx.fillStyle = "#c0392b";
+        ctx.beginPath();
+        ctx.moveTo(sx - 15, sy - 20);
+        ctx.lineTo(sx + merchant.w + 15, sy - 20);
+        ctx.lineTo(sx + merchant.w + 5, sy - 35);
+        ctx.lineTo(sx - 5, sy - 35);
+        ctx.closePath();
+        ctx.fill();
+
+        // Tüccar gövdesi
+        ctx.fillStyle = "#e07a30";
+        ctx.fillRect(sx + 2, sy, merchant.w - 4, merchant.h - 10);
+        // Kafa
+        ctx.fillStyle = "#f5cba7";
+        ctx.beginPath();
+        ctx.arc(sx + merchant.w / 2, sy - 6, 10, 0, Math.PI * 2);
+        ctx.fill();
+        // Şapka
+        ctx.fillStyle = "#2c1a0e";
+        ctx.fillRect(sx + 2, sy - 18, merchant.w - 4, 8);
+        // Gözler
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(sx + 6, sy - 10, 3, 3);
+        ctx.fillRect(sx + 18, sy - 10, 3, 3);
+        // Tabela
+        ctx.fillStyle = "rgba(10,5,20,0.7)";
+        ctx.fillRect(sx - 12, sy - 50, 52, 14);
+        ctx.fillStyle = "#ffd700";
+        ctx.font = "9px Courier New";
+        ctx.fillText("E - Sat!", sx - 8, sy - 40);
+      }
+
+      // Oyuncu çizimi
+      function drawPlayer() {
+        const sx = player.x - camX;
+        const sy = player.y - camY;
+
+        ctx.save();
+        if (!player.facingRight) {
+          ctx.translate(sx + player.w, sy); // orijini SAĞ ÜST köşeye taşır
+          ctx.scale(-1, 1); // x eksenini ters döndürür.
+        } else {
+          ctx.translate(sx, sy); // orijin oyuncunun SOL ÜST köşesinde, çizim soldan sağa doğru yapılıyor
+        }
+        //orijinin her türlü oyuncunun arka üst köşesinde kalmasını sağlamış oluruz
+
+        // Gövde
+        ctx.fillStyle = "#2980b9";
+        ctx.fillRect(3, 10, player.w - 6, player.h - 14);
+        // Kafa
+        ctx.fillStyle = "#f5cba7";
+        ctx.fillRect(4, 0, player.w - 8, 12);
+        // Şapka / kask
+        ctx.fillStyle = "#e8c84a";
+        ctx.fillRect(2, -4, player.w - 4, 7);
+        // Kask lambası
+        ctx.fillStyle = "#fff176";
+        ctx.beginPath();
+        ctx.arc(player.w - 4, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+        // Lamba ışık hüzmesi
+        ctx.fillStyle = "rgba(255,245,150,0.18)";
+        ctx.beginPath();
+        ctx.moveTo(player.w - 4, 0);
+        ctx.lineTo(player.w + 50, -30);
+        ctx.lineTo(player.w + 50, 30);
+        ctx.closePath();
+        ctx.fill();
+        // Bacaklar
+        const legHeight = 10; // Bacakların boyu 10 piksel
+        ctx.fillStyle = "#1a6490";
+
+        // Sol Bacak
+        ctx.fillRect(3, player.h - 10, 8, legHeight);
+
+        // Sağ Bacak
+        ctx.fillRect(player.w - 11, player.h - 10, 8, legHeight);
+
+        // Kazma
+        ctx.strokeStyle = "#8b6914";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(player.w - 2, 12);
+        ctx.lineTo(player.w + 14, 22);
+        ctx.stroke();
+        ctx.fillStyle = "#b0b0b0";
+        ctx.beginPath();
+        ctx.moveTo(player.w + 12, 18);
+        ctx.lineTo(player.w + 18, 14);
+        ctx.lineTo(player.w + 16, 26);
+        ctx.closePath();
+        ctx.fill();
+        ctx.lineWidth = 1;
+
+        ctx.restore();
+      }
+
+      // Partikülleri çiz
+      function drawParticles() {
+        for (const p of particles) {
+          ctx.globalAlpha = Math.max(0, p.life);
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x - camX, p.y - camY, p.r * p.life, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // HUD: Envanter ve maden haritası
+      function drawHUD() {
+        // Derinlik göstergesi
+        const depth = Math.max(
+          0,
+          Math.floor((player.y - (SURFACE_ROW - 1) * TILE) / TILE),
+        );
+        ctx.fillStyle = "rgba(10,8,20,0.75)";
+        ctx.fillRect(W - 110, H - 38, 108, 30);
+        ctx.fillStyle = "#9b6fd0";
+        ctx.font = "12px Courier New";
+        ctx.fillText(`Derinlik: ${depth}m`, W - 106, H - 18);
+
+        // Aktif süre uyarısı (son 20 saniye)
+        if (timeLeft <= 20) {
+          const alpha = 0.3 + 0.3 * Math.sin(Date.now() / 200);
+          ctx.fillStyle = `rgba(200,50,50,${alpha})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // Kristal envanter barı
+        if (crystals > 0) {
+          ctx.fillStyle = "rgba(10,8,20,0.8)";
+          ctx.fillRect(W / 2 - 60, H - 42, 120, 34);
+          ctx.fillStyle = "#c084fc";
+          ctx.font = "12px Courier New";
+          ctx.textAlign = "center";
+          ctx.fillText(`💎 ${crystals} kristal`, W / 2, H - 23);
+          ctx.fillText("E ile sat!", W / 2, H - 10);
+          ctx.textAlign = "left";
+        }
+      }
+
+      // ========================
+      // OYUN BAŞLATMA / BİTİŞ
+      // ========================
+      function startGame() {
+        initAudio();
+        generateMap();
+        particles = [];
+        player.x = 4 * TILE;
+        player.y = (SURFACE_ROW - 2) * TILE;
+        player.vx = 0;
+        player.vy = 0;
+        player.onGround = false;
+        player.hasDoubleJumped = false;
+        player.mineProgress = 0;
+        player.mineTarget = null;
+        crystals = 0;
+        gold = 0;
+        sold = 0;
+        timeLeft = GAME_TIME;
+        timerAcc = 0;
+        camX = 0;
+        camY = 0;
+        document.getElementById("msgOverlay").style.display = "none";
+        gameState = "playing";
+        updateUI();
+      }
+
+      function showEndScreen() {
+        const overlay = document.getElementById("msgOverlay");
+        overlay.innerHTML =
+          gameState === "win"
+            ? `<h1>🏆 Kazandın!</h1>
+       <p>Tüm kristalleri satarak ${gold} altın kazandın!<br>Tüccar memnun, artık özgürsün!</p>
+       <button onclick="startGame()">YENİDEN OYNA</button>`
+            : `<h1>💀 Kaybettin!</h1>
+       <p>Süre doldu! Yalnızca ${sold}/${GOAL} sipariş tamamlayabildin.<br>Tüccar sinirlendi...</p>
+       <button onclick="startGame()">TEKRAR DENE</button>`;
+        overlay.style.display = "flex";
+      }
+
+      // ========================
+      // ANA OYUN DÖNGÜSÜ
+      // ========================
+      function gameLoop(timestamp) {
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.05); // Delta time (saniye)
+        lastTime = timestamp;
+
+        ctx.clearRect(0, 0, W, H);
+
+        if (gameState === "playing") {
+          // Sayaç güncelle
+          timerAcc += dt;
+          if (timerAcc >= 0.25) {
+            timeLeft -= timerAcc;
+            timerAcc = 0;
+            updateUI();
+            if (timeLeft <= 0) {
+              timeLeft = 0;
+              gameState = "lose";
+              showEndScreen();
+            }
+          }
+
+          updatePlayer(dt);
+          updateMining(dt);
+          updateCamera();
+          updateParticles(dt);
+          mouse.clicked = false;
+
+          drawBackground();
+          drawMap();
+          drawMerchant();
+          drawPlayer();
+          drawMiningIndicator();
+          drawParticles();
+          drawHUD();
+        } else {
+          // Menü arkaplanı animasyonu
+          drawBackground();
+          drawMap();
+        }
+
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ========================
+      // BAŞLAT
+      // ========================
+      document.getElementById("startBtn").addEventListener("click", startGame);
+
+      // Haritayı menü için önceden oluştur
+      generateMap();
+      requestAnimationFrame((ts) => {
+        lastTime = ts;
+        gameLoop(ts);
+      });
+    </script>
+  </body>
+</html>
